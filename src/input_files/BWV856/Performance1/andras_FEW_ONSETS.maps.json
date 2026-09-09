@@ -1,0 +1,87 @@
+[
+  {
+    "obs_mean_onset": 0.034829932,
+    "xml_id": [
+      "a13d7g5m"
+    ],
+    "obs_num": 1
+  },
+  {
+    "obs_mean_onset": 8.690068027,
+    "xml_id": [
+      "ghtmnmh"
+    ],
+    "obs_num": 50
+  },
+  {
+    "obs_mean_onset": 15.812789116,
+    "xml_id": [
+      "e1cgl"
+    ],
+    "obs_num": 100
+  },
+  {
+    "obs_mean_onset": 22.221496599,
+    "xml_id": [
+      "t1kv0stu"
+    ],
+    "obs_num": 150
+  },
+  {
+    "obs_mean_onset": 28.943673469,
+    "xml_id": [
+      "e15vu1qg",
+      "qvxixgr"
+    ],
+    "obs_num": 200
+  },
+  {
+    "obs_mean_onset": 36.797823129,
+    "xml_id": [
+      "qu1qfk9",
+      "is5upbo"
+    ],
+    "obs_num": 250
+  },
+  {
+    "obs_mean_onset": 45.278911565,
+    "xml_id": [
+      "xolivdr"
+    ],
+    "obs_num": 300
+  },
+  {
+    "obs_mean_onset": 52.610612245,
+    "xml_id": [
+      "c1e1jupb",
+      "o9bzwp3"
+    ],
+    "obs_num": 350
+  },
+  {
+    "obs_mean_onset": 60.813061224,
+    "xml_id": [
+      "o1f08src",
+      "c1vsnd7j",
+      "uh6neyy"
+    ],
+    "obs_num": 400
+  },
+  {
+    "obs_mean_onset": 69.363809524,
+    "xml_id": [
+      "todxqb7",
+      "z1x1nkq6"
+    ],
+    "obs_num": 450
+  },
+  {
+  "obs_mean_onset": 73.317006803,
+  "xml_id": [
+  "p1gfc6uo",
+  "m1sjqq9w",
+  "i1puxgs7"
+  ],
+  "obs_num": 466
+  }
+]
