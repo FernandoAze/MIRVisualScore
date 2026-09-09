@@ -52,7 +52,9 @@ class Visualizer:
                  beats: Optional[str] = None,
                  figsize: Optional[Tuple[float, float]] = None, 
                  plot_size_inPxl: Optional[Tuple[int, int]] = None, 
-                 dpi: int = 300):
+                 dpi: int = 300,
+                 performance_start: Optional[str] = None,
+                 performance_end: Optional[str] = None):
         """
         Initialize Visualizer with customizable figure size.
         
@@ -64,6 +66,12 @@ class Visualizer:
             figsize: Figure size as (width, height) in inches. Default (14, 8) if neither figsize nor pixel_size specified.
             pixel_size: Figure size as (width, height) in pixels. Converts to inches using dpi parameter.
             dpi: Dots per inch for pixel-to-inch conversion. Default is 96 (standard screen DPI).
+            performance_start: Optional "mm:ss.xxx" timestamp; only the performance time
+                from this point onward is shown in the composed figure. Defaults to the
+                start of the audio when omitted.
+            performance_end: Optional "mm:ss.xxx" timestamp; only the performance time up
+                to this point is shown in the composed figure. Defaults to the end of the
+                audio when omitted.
         """
         self.layers: List[Layer] = []
         self.panels: List[Dict[str, Any]] = []
@@ -77,6 +85,8 @@ class Visualizer:
         self.score = score
         self.maps = maps
         self.beats = beats
+        self.performance_start = self._parse_timestamp(performance_start)
+        self.performance_end = self._parse_timestamp(performance_end)
         
         # Convert pixel_size to inches if provided, otherwise use figsize or default
         if plot_size_inPxl is not None:
@@ -86,6 +96,19 @@ class Visualizer:
         else:
             self.figsize = (14, 8)  # Default size in inches
     
+    @staticmethod
+    def _parse_timestamp(timestamp: Optional[str]) -> Optional[float]:
+        '''
+        Parse a "mm:ss.xxx" timestamp string into seconds. Returns None if
+        timestamp is None (i.e. no cropping requested for that bound).
+        '''
+        if timestamp is None:
+            return None
+        minutes_str, _, seconds_str = str(timestamp).partition(':')
+        if not seconds_str:
+            return float(minutes_str)
+        return int(minutes_str) * 60 + float(seconds_str)
+
     def add_layer(self, layer: Layer) -> 'Visualizer':
         self.layers.append(layer)
         # print(f"Added layer: {layer.name}")
@@ -275,7 +298,8 @@ class Visualizer:
             
         return layersWidth, layersHeight       
     
-    def turn_to_SVG(self, filename: str, svg_warped_score: str, plot_size: Optional[Tuple[int, int]] = None, show_axes: bool = False, print_output: bool = False):
+    def turn_to_SVG(self, filename: str, svg_warped_score: str, plot_size: Optional[Tuple[int, int]] = None, show_axes: bool = False, print_output: bool = False,
+                    crop_start_time: Optional[float] = None, crop_end_time: Optional[float] = None):
         '''
         Convert all layers to a vector-based SVG with each layer as a separate group.
         
@@ -285,6 +309,11 @@ class Visualizer:
             plot_size: Tuple of (width, height) in pixels
             show_axes: If True, layers that support it will overlay axis labels as SVG elements on the image.
             print_output: Whether to print status messages
+            crop_start_time: When the composite is cropped to a performance window, the
+                start (in seconds) of that window; used to redraw the y-axis at the
+                visible left edge instead of the panel's true time origin.
+            crop_end_time: End (in seconds) of the cropped performance window, used to
+                limit the x-axis ticks drawn to the visible range.
         
         Returns:
             filename if successful, False otherwise
@@ -306,6 +335,12 @@ class Visualizer:
         y_min, y_max = ax.get_ylim()
         logit_axis = self.shared_data.get("ax2")
         logit_y_min, logit_y_max = logit_axis.get_ylim() if logit_axis is not None else (None, None)
+
+        ''' Position where the y-axis should be redrawn: the panel's true origin (0)
+        unless a performance window crop pushes the visible left edge inward. '''
+        axis_x_px = 0.0
+        if crop_start_time is not None and x_max != x_min:
+            axis_x_px = ((crop_start_time - x_min) / (x_max - x_min)) * width_px
         
         ''' Store axis info for layer SVG conversion '''
         self.shared_data["svg_context"] = {
@@ -319,6 +354,9 @@ class Visualizer:
             "height_px": height_px,
             "show_axes": show_axes,
             "logit_axes_added": False,
+            "axis_x_px": axis_x_px,
+            "crop_start_time": crop_start_time,
+            "crop_end_time": crop_end_time,
         }
         
         svg_groups = []
@@ -415,7 +453,8 @@ class Visualizer:
                 print(f"✅ PNG saved successfully: {filename} ---> ({width_px}x{height_px}px @ {dpi}dpi)")
         return output_path
         
-    def create_final_SVG(self, width: int, height: int, svg_layers: List[Tuple[str, float]], output_file: str, background_color: str = '#ffffff', print_output: bool = False):
+    def create_final_SVG(self, width: int, height: int, svg_layers: List[Tuple[str, float]], output_file: str, background_color: str = '#ffffff', print_output: bool = False,
+                          crop_x_start: Optional[float] = None, crop_x_end: Optional[float] = None, content_crop_x: Optional[float] = None):
         '''
         Combine multiple SVG files into a single final SVG with each as a separate nested SVG with y-offsets.
         Preserves each SVG's coordinate system and root element attributes (including ID).
@@ -427,6 +466,11 @@ class Visualizer:
             output_file: Output SVG filename (saves to /output directory)
             background_color: Color for the background rectangle
             print_output: Whether to print status messages
+            crop_x_start: When cropping to a performance window, the global x pixel
+                position (in the uncropped coordinate system) of its left edge
+            crop_x_end: Global x pixel position of the crop window's right edge
+            content_crop_x: True performance_start position (no left-margin padding);
+                the score's own notation is clipped here so nothing before it is visible
         
         Returns:
             str: Path to output file if successful, False otherwise
@@ -549,6 +593,16 @@ class Visualizer:
                     inner_content = re.sub(r'\bhref="#([^"]+)"', lambda m: f'href="#{panel_prefix}-{m.group(1)}"', inner_content)
                     inner_content = re.sub(r'url\(#([^)]+)\)', lambda m: f'url(#{panel_prefix}-{m.group(1)})', inner_content)
 
+                    ''' Hide the score's own notation left of performance_start; the score is
+                    nested at x=0, so its local coordinates match the global crop position. '''
+                    if contains_timeAxis and content_crop_x is not None and content_crop_x > 0:
+                        clip_id = f"{panel_prefix}-perf-start-clip"
+                        inner_content = (
+                            f'<defs><clipPath id="{clip_id}"><rect x="{content_crop_x:.2f}" y="-100000" '
+                            f'width="1000000" height="1000000"/></clipPath></defs>'
+                            f'<g clip-path="url(#{clip_id})">{inner_content}</g>'
+                        )
+
                     nested_svg = f'''  <svg class="{panel_name}"{id_attr}{viewBox_attr}{width_attr}{height_attr} x="{nested_x}" y="{y_offset}" overflow="visible" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 {inner_content}
   </svg>'''
@@ -569,13 +623,20 @@ class Visualizer:
             ''' panels are offset by ref_timeAxis_x, so the root viewBox must include that margin '''
             root_width = width + (ref_timeAxis_x if ref_timeAxis_x is not None else 0)
 
+            ''' A performance-window crop replaces the full-width viewBox with a window
+            onto it; nested content keeps its original coordinates and is simply clipped. '''
+            if crop_x_start is not None and crop_x_end is not None:
+                view_x, view_width = crop_x_start, crop_x_end - crop_x_start
+            else:
+                view_x, view_width = 0, root_width
+
             final_svg_markup = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="{svg_ns}"
      xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="{root_width}px"
+     width="{view_width}px"
      height="{height}px"
-     viewBox="0 0 {root_width} {height}">
-  <rect x="0" y="0" width="100%" height="100%" fill="{background_color}" />
+     viewBox="{view_x} 0 {view_width} {height}">
+  <rect x="{view_x}" y="0" width="100%" height="100%" fill="{background_color}" />
 {visual_groups_str}
 </svg>'''
             
@@ -590,7 +651,7 @@ class Visualizer:
                 f.write(final_svg_markup)
             
             if print_output:
-                print(f"✅ Final SVG created: {output_path} ({root_width}x{height}px)")
+                print(f"✅ Final SVG created: {output_path} ({view_width}x{height}px)")
             
             return output_path
             
@@ -633,8 +694,17 @@ class Visualizer:
 
             ''' Pre-compute base panel dimensions from the warped score '''
             from .warp_score import Warp_Score as _WS
-            self.shared_data['audio_duration'] = _WS().audio_duration(self.audio)
+            audio_duration = _WS().audio_duration(self.audio)
+            self.shared_data['audio_duration'] = audio_duration
             base_width, base_height = self.get_Layers_WidthHeight(self.score)
+
+            ''' Resolve the performance window to display; defaults to the whole audio '''
+            crop_start = self.performance_start if self.performance_start is not None else 0.0
+            crop_end = self.performance_end if self.performance_end is not None else audio_duration
+            if not (0 <= crop_start < crop_end <= audio_duration + 1e-6):
+                print(f"✗ Error: performance_start/performance_end window ({crop_start}, {crop_end}) "
+                      f"is outside the audio duration (0, {audio_duration:.3f})")
+                return False
 
             panel_svgs = []
             panel_heights = []
@@ -657,6 +727,8 @@ class Visualizer:
                     plot_size=(base_width, scaled_height),
                     show_axes=panel['show_axes'],
                     print_output=print_output,
+                    crop_start_time=crop_start,
+                    crop_end_time=crop_end,
                 )
                 plt.close(fig)
 
@@ -682,6 +754,36 @@ class Visualizer:
 
             total_height = y + rows[-1][1] + score_trim
 
+            ''' Translate the performance window (seconds) into global pixel bounds so the
+            final SVG can be windowed to it; ref_timeAxis_x mirrors create_final_SVG's offset.
+            Truncate to int just like create_final_SVG's nested_x, so the crop boundary lines
+            up exactly with where panel content (and its redrawn axis) actually sits. '''
+            crop_x_start = crop_x_end = None
+            content_crop_x = None
+            if crop_start > 0 or crop_end < audio_duration:
+                first_x = 0.0
+                score_root = ET.parse(self.score).getroot()
+                ns = {'svg': 'http://www.w3.org/2000/svg'}
+                time_axis = score_root.find(".//svg:g[@class='timeAxis']", ns)
+                if time_axis is None:
+                    time_axis = score_root.find(".//g[@class='timeAxis']")
+                if time_axis is not None:
+                    children = list(time_axis)
+                    if len(children) >= 2 and children[1].get('x1') is not None:
+                        first_x = float(int(float(children[1].get('x1'))))
+                crop_x_start = first_x + (crop_start / audio_duration) * base_width
+                crop_x_end = first_x + (crop_end / audio_duration) * base_width
+
+                ''' The true performance_start position, before the axis-label margin below
+                is subtracted; used to clip the score's own notation at the real cut point. '''
+                if self.performance_start is not None:
+                    content_crop_x = crop_x_start
+
+                ''' Leave room to the left for the redrawn axis and its tick labels,
+                only when performance_start actually moves the crop's left edge '''
+                if self.performance_start is not None:
+                    crop_x_start -= 50
+
             return self.create_final_SVG(
                 width=base_width,
                 height=total_height,
@@ -689,4 +791,7 @@ class Visualizer:
                 output_file=output_file,
                 background_color=background_color,
                 print_output=print_output,
+                crop_x_start=crop_x_start,
+                crop_x_end=crop_x_end,
+                content_crop_x=content_crop_x,
             )

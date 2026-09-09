@@ -14,7 +14,7 @@ svg_score = str(root_dir / input_parent_dir / "SW andras.svg")
 maps_file = str(root_dir / input_parent_dir / "andras.maps.json")
 beat_file = str(root_dir / input_parent_dir / "beat_example1.npz")
 
-fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file)
+fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file, performance_start='00:27.567891156', performance_end='00:36.797823129')
 
 # Layer 2: shows Beat and Downbeat Probabilities
 fig.add_panel(BeatsLayer(color="black", line_width=1, line_type="dashed"),
@@ -25,4 +25,4 @@ fig.add_panel(DownbeatsLayer(color="black", line_type="dashed"),
               DownbeatLogits(line_width=0.5),
               height_scale=0.5)
 
-fig.compose("FIG523.svg", score_position=1, print_output=True)
+fig.compose("FIG523_CUT.svg", score_position=1, print_output=True)

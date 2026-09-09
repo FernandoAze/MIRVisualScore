@@ -14,9 +14,10 @@ svg_score = str(root_dir / input_parent_dir / "SW andras.svg")
 maps_file = str(root_dir / input_parent_dir / "andras.maps.json")
 beat_file = str(root_dir / input_parent_dir / "beat_example1.npz")
 
-fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file)
+fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file, performance_start='00:11.668027211', performance_end='00:23.109659864')
 
 fig.add_panel(Waveform(color=(0, 0, 1), normalize=True),
               BeatsLayer(line_width=0.7))
 
-SVG_fig = fig.compose("FIG524.svg", print_output=True)  
+SVG_fig = fig.compose("FIG524_CUT.svg", print_output=True)  
+

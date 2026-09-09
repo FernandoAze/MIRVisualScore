@@ -14,7 +14,8 @@ svg_score = str(root_dir / input_parent_dir / "SW andras.svg")
 maps_file = str(root_dir / input_parent_dir / "andras.maps.json")
 beat_file = str(root_dir / input_parent_dir / "beat_example1.npz")
 
-fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file)
+fig = Visualizer(audio=audio_file, score=svg_score, maps=maps_file, beats=beat_file,
+                performance_start='00:08.568163265', performance_end='00:18.09414966')
 
 fig.add_panel(MelSpec(freq_window=(20, 2000), color_map="cool"),
               height_scale=0.5)
@@ -24,4 +25,4 @@ fig.add_panel(Waveform(color="#FFD500", normalize=True),
               Onset(onset_color=(0, 0, 0), line_width=0.5),
               height_scale=0.5)
 
-SVG_fig = fig.compose("FIG522.svg", print_output=True)
+SVG_fig = fig.compose("FIG522_CUT.svg", print_output=True)

@@ -44,6 +44,20 @@ def value_to_pixel_y(value: float, y_min: float, y_max: float, height_px: float)
     return (1 - (value - y_min) / (y_max - y_min)) * height_px
 
 
+def content_clip(ctx: Dict, clip_id: str) -> Tuple[str, str]:
+    '''
+    Hide a layer's real content left of the performance_start crop, if any.
+    Returns (defs_markup, clip_attr); both are empty strings when no crop is active.
+    The redrawn axis itself is left out of this clip so its labels stay visible.
+    '''
+    clip_x = ctx.get("axis_x_px", 0.0)
+    if not clip_x:
+        return '', ''
+    height_px = ctx["height_px"]
+    defs = f'    <defs><clipPath id="{clip_id}"><rect x="{clip_x:.2f}" y="-1000" width="1000000" height="{height_px + 2000:.1f}"/></clipPath></defs>'
+    return defs, f' clip-path="url(#{clip_id})"'
+
+
 class Curve(Layer):
     """A single 2D line: a raw signal (e.g. a waveform) or a per-frame
     activation curve (e.g. a beat logit), drawn on the panel's primary
@@ -119,22 +133,24 @@ class Curve(Layer):
             return []
 
         ctx[flag_key] = True
+        ''' Redrawn at the crop's visible left edge instead of the true time origin '''
+        axis_x = ctx.get("axis_x_px", 0.0)
         parts = [
-            f'    <line x1="0" y1="0" x2="0" y2="{height_px}" stroke="#111" stroke-width="1"/>',
-            f'    <line x1="0" y1="{height_px}" x2="{width_px}" y2="{height_px}" stroke="#111" stroke-width="1"/>',
+            f'    <line x1="{axis_x:.1f}" y1="0" x2="{axis_x:.1f}" y2="{height_px}" stroke="#111" stroke-width="1"/>',
+            f'    <line x1="{axis_x:.1f}" y1="{height_px}" x2="{width_px}" y2="{height_px}" stroke="#111" stroke-width="1"/>',
         ]
 
         for val in np.linspace(y_min, y_max, 5):
             y_s = value_to_pixel_y(val, y_min, y_max, height_px)
-            parts.append(f'    <line x1="-4" y1="{y_s:.1f}" x2="0" y2="{y_s:.1f}" stroke="#111" stroke-width="1"/>')
-            parts.append(f'    <text x="-6" y="{y_s + 3:.1f}" text-anchor="end" font-size="8" font-family="Arial,sans-serif" fill="#111">{tick_format.format(val)}</text>')
+            parts.append(f'    <line x1="{axis_x - 4:.1f}" y1="{y_s:.1f}" x2="{axis_x:.1f}" y2="{y_s:.1f}" stroke="#111" stroke-width="1"/>')
+            parts.append(f'    <text x="{axis_x - 6:.1f}" y="{y_s + 3:.1f}" text-anchor="end" font-size="8" font-family="Arial,sans-serif" fill="#111">{tick_format.format(val)}</text>')
 
         if y_min < 0 < y_max:
             zero_y = value_to_pixel_y(0, y_min, y_max, height_px)
-            parts.append(f'    <line x1="0" y1="{zero_y:.1f}" x2="{width_px}" y2="{zero_y:.1f}" stroke="#999" stroke-width="0.5" stroke-dasharray="4,3"/>')
+            parts.append(f'    <line x1="{axis_x:.1f}" y1="{zero_y:.1f}" x2="{width_px}" y2="{zero_y:.1f}" stroke="#999" stroke-width="0.5" stroke-dasharray="4,3"/>')
 
-        t_start = int(np.ceil(x_min))
-        t_end = int(np.floor(x_max))
+        t_start = int(np.ceil(max(x_min, ctx.get("crop_start_time") or x_min)))
+        t_end = int(np.floor(min(x_max, ctx.get("crop_end_time") or x_max)))
         for t in range(t_start, t_end + 1):
             x_s = time_to_pixel_x(t, ctx)
             if t % 5 == 0:
@@ -182,7 +198,10 @@ class Curve(Layer):
 
         parts = [f'  <g id="{self.name}" class="layer {self.svg_class}">']
         parts.extend(self._axis_svg(ctx, y_min, y_max, tick_format, axis_flag))
-        parts.append(f'    <polyline points="{points}" stroke="{color_hex}" stroke-width="{self.line_width}" fill="none"{opacity_attr}{dash_attr}/>')
+        clip_defs, clip_attr = content_clip(ctx, f"{self.name.replace(' ', '_')}-content-clip")
+        if clip_defs:
+            parts.append(clip_defs)
+        parts.append(f'    <polyline points="{points}" stroke="{color_hex}" stroke-width="{self.line_width}" fill="none"{opacity_attr}{dash_attr}{clip_attr}/>')
         parts.append('  </g>')
         return '\n'.join(parts)
 
@@ -250,8 +269,10 @@ class Events(Layer):
         lines = self._lines_svg(shared_data)
         if not lines:
             return None
-        svg_group = f'''  <g id="{self.name}" class="layer {self.svg_class}">
-{chr(10).join(lines)}
+        ctx = shared_data.get("svg_context", {})
+        clip_defs, clip_attr = content_clip(ctx, f"{self.name.replace(' ', '_')}-content-clip")
+        svg_group = f'''  <g id="{self.name}" class="layer {self.svg_class}"{clip_attr}>
+{clip_defs + chr(10) if clip_defs else ''}{chr(10).join(lines)}
   </g>'''
         return svg_group
 
@@ -362,6 +383,7 @@ class Intervals(Layer):
 
         ctx = shared_data["svg_context"]
         color_hex = rgb_to_hex(self.color)
+        clip_defs, clip_attr = content_clip(ctx, f"{self.name.replace(' ', '_')}-content-clip")
         gradients, rectangles = [], []
 
         for idx, (start_idx, end_idx, _) in enumerate(windows):
@@ -378,11 +400,12 @@ class Intervals(Layer):
       <stop offset="100%" style="stop-color:{color_hex};stop-opacity:0"/>
     </linearGradient>''')
 
-            rectangles.append(f'    <rect x="{x1:.2f}" y="0" width="{x2 - x1:.2f}" height="{ctx["height_px"]}" fill="url(#{gradient_id})"/>')
+            rectangles.append(f'    <rect x="{x1:.2f}" y="0" width="{x2 - x1:.2f}" height="{ctx["height_px"]}" fill="url(#{gradient_id})"{clip_attr}/>')
 
         svg_group = f'''  <g id="{self.name}" class="layer {self.svg_class}">
     <defs>
 {chr(10).join(gradients)}
+{clip_defs}
     </defs>
 {chr(10).join(rectangles)}
   </g>'''
@@ -443,23 +466,27 @@ class Field(Layer):
 
             ''' Image fills the full SVG area — no margins, no whitespace '''
             parts = [f'  <g id="{self.name}" class="layer {self.svg_class}">']
-            parts.append(f'    <image x="0" y="0" width="{width_px}" height="{height_px}" href="data:image/png;base64,{b64}" preserveAspectRatio="none"/>')
+            clip_defs, clip_attr = content_clip(ctx, f"{self.name.replace(' ', '_')}-content-clip")
+            if clip_defs:
+                parts.append(clip_defs)
+            parts.append(f'    <image x="0" y="0" width="{width_px}" height="{height_px}" href="data:image/png;base64,{b64}" preserveAspectRatio="none"{clip_attr}/>')
 
             if show_axes:
-                ''' Y axis line along left edge '''
-                parts.append(f'    <line x1="0" y1="0" x2="0" y2="{height_px}" stroke="#111" stroke-width="1"/>')
+                axis_x = ctx.get("axis_x_px", 0.0)
+                ''' Y axis line along the visible left edge '''
+                parts.append(f'    <line x1="{axis_x:.1f}" y1="0" x2="{axis_x:.1f}" y2="{height_px}" stroke="#111" stroke-width="1"/>')
                 ''' X axis line along bottom edge '''
-                parts.append(f'    <line x1="0" y1="{height_px}" x2="{width_px}" y2="{height_px}" stroke="#111" stroke-width="1"/>')
+                parts.append(f'    <line x1="{axis_x:.1f}" y1="{height_px}" x2="{width_px}" y2="{height_px}" stroke="#111" stroke-width="1"/>')
 
                 ''' Y ticks + labels drawn outwards (left of image) '''
                 for frac, label, text_dy in self._y_ticks(shared_data):
                     y_s = height_px * (1 - frac)
-                    parts.append(f'    <line x1="-4" y1="{y_s:.1f}" x2="0" y2="{y_s:.1f}" stroke="#111" stroke-width="1"/>')
-                    parts.append(f'    <text x="-6" y="{y_s + 2 + text_dy:.1f}" text-anchor="end" font-size="8" font-family="Arial,sans-serif" fill="#111">{label}</text>')
+                    parts.append(f'    <line x1="{axis_x - 4:.1f}" y1="{y_s:.1f}" x2="{axis_x:.1f}" y2="{y_s:.1f}" stroke="#111" stroke-width="1"/>')
+                    parts.append(f'    <text x="{axis_x - 6:.1f}" y="{y_s + 2 + text_dy:.1f}" text-anchor="end" font-size="8" font-family="Arial,sans-serif" fill="#111">{label}</text>')
 
-                ''' X ticks: minor every 1s, major (labeled) every 5s '''
-                t_start = int(np.ceil(x_min))
-                t_end = int(np.floor(x_max))
+                ''' X ticks: minor every 1s, major (labeled) every 5s, limited to the visible crop range '''
+                t_start = int(np.ceil(max(x_min, ctx.get("crop_start_time") or x_min)))
+                t_end = int(np.floor(min(x_max, ctx.get("crop_end_time") or x_max)))
                 for t in range(t_start, t_end + 1):
                     x_s = time_to_pixel_x(t, ctx)
                     if t % 5 == 0:
