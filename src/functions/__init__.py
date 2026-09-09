@@ -10,8 +10,11 @@ from .visualization_system import Layer, Visualizer
 ''' Score warping and onset layers '''
 from .warp_score import Onset, Warp_Score
 
-''' Spectrogram, Chromagram and Waveform layers '''
+''' Spectrogram, Chromagram, and Waveform layers '''
 from .Audio_Layers import MelSpec, Chromagram, Waveform
+
+''' OnsetNovelty layer '''
+from .OnsetNovelty_Layer import OnsetNovelty
 
 ''' Shape-based rendering primitives '''
 from .shapes import Curve, Events, Intervals, Field
@@ -36,6 +39,7 @@ __all__ = [
     'MelSpec',
     'Chromagram',
     'Waveform',
+    'OnsetNovelty',
     'Curve',
     'Events',
     'Intervals',
